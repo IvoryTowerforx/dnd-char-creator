@@ -163,6 +163,7 @@ export default function CharacterCreator() {
 
   const handleSave = () => {
     if (!basic.name.trim()) return alert("请输入角色名！");
+    // Ensure all elements exist and are saved properly into the card
     const newCard = {
       id: Date.now(), 
       basic, 
@@ -176,35 +177,21 @@ export default function CharacterCreator() {
       equipment, 
       specialAttrs
     };
-    
-    // 如果角色名已存在，更新旧卡片，否则新增
-    const existingIndex = savedCards.findIndex(c => c.basic.name === basic.name);
-    let newCards = [...savedCards];
-    
-    if (existingIndex >= 0) {
-      newCard.id = savedCards[existingIndex].id; // 保持原有ID
-      newCards[existingIndex] = newCard;
-    } else {
-      newCards.push(newCard);
-    }
-    
+    const newCards = [...savedCards, newCard];
     setSavedCards(newCards);
     localStorage.setItem('trpg_characters', JSON.stringify(newCards));
     alert("角色卡已保存！");
   };
 
-  const loadCharacter = (c) => {
-    // 恢复基础信息和计算衍生属性所需要的状态
-    if (c.basic) setBasic(c.basic);
-    if (c.statMethod) setStatMethod(c.statMethod);
-    if (c.baseStats) setBaseStats(c.baseStats);
-    if (c.proficiencies) setProficiencies(c.proficiencies);
-    if (c.spells !== undefined) setSpells(c.spells);
-    if (c.equipment) setEquipment(c.equipment);
-    if (c.specialAttrs !== undefined) setSpecialAttrs(c.specialAttrs);
-    
-    // 滚动到顶部方便查看
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  const loadCharacter = (card) => {
+    setBasic(card.basic);
+    setStatMethod(card.statMethod || 'pointBuy');
+    setBaseStats(card.baseStats || { str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8 });
+    setProficiencies(card.proficiencies || { skills: {} });
+    setEquipment(card.equipment || { armor: 'none', shield: false, weapons: '' });
+    setSpells(card.spells || '');
+    setSpecialAttrs(card.specialAttrs || '');
+    window.scrollTo({ top: 0, behavior: 'smooth' }); // 滚动到顶部以便查看
   };
 
   const handleDelete = (id) => {
@@ -642,11 +629,11 @@ export default function CharacterCreator() {
             {savedCards.map(c => (
               <div 
                 key={c.id} 
+                className="bg-white border border-gray-300 p-4 relative group rounded shadow-sm hover:shadow-lg hover:border-[#8b2b2b] cursor-pointer transition-all"
                 onClick={() => loadCharacter(c)}
-                className="bg-white border border-gray-300 p-4 relative group rounded shadow-sm cursor-pointer hover:shadow-md hover:border-dnd-gold transition-all"
               >
                 <div>
-                  <h3 className="font-bold text-xl mb-1">{c.basic?.name || "未知"}</h3>
+                  <h3 className="font-bold text-xl mb-1 text-dnd-red-dark">{c.basic?.name || "未知"}</h3>
                   <p className="text-sm font-bold text-gray-600 mb-3">{c.basic?.race} / {c.basic?.charClass} / 等级 {c.basic?.level}</p>
                   <div className="flex gap-2 text-xs font-bold text-gray-700">
                     <span className="bg-blue-100 border border-blue-200 px-2 py-1 rounded">AC {c.ac}</span>
@@ -656,14 +643,12 @@ export default function CharacterCreator() {
                 </div>
                 <button 
                   onClick={(e) => {
-                    e.stopPropagation(); // 阻止冒泡触发卡片的 onClick
-                    if(window.confirm(`确定要删除 ${c.basic?.name} 吗？`)) {
-                      handleDelete(c.id);
-                    }
+                    e.stopPropagation(); // 阻止事件冒泡防止触发加载
+                    handleDelete(c.id);
                   }}
-                  className="absolute top-4 right-4 text-gray-400 hover:text-red-500 text-sm font-bold opacity-0 group-hover:opacity-100 transition"
+                  className="absolute top-4 right-4 text-gray-400 hover:text-red-500 text-sm font-bold opacity-0 group-hover:opacity-100 transition z-10 bg-white px-2 py-1 border border-gray-300 rounded shadow-sm"
                 >
-                  【删除】
+                  删除
                 </button>
               </div>
             ))}
