@@ -1,19 +1,29 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { loginGuest, saveSession } from '../lib/api';
 
 export default function Login() {
   const [username, setUsername] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     if (!username.trim()) {
       alert("请输入你的名字，勇敢的冒险者！");
       return;
     }
-    // 先简单用 localStorage 记录下登录用户的代号，后续对接数据库
-    localStorage.setItem('dnd_user', username);
-    navigate('/creator');
+
+    setIsSubmitting(true);
+    try {
+      const session = await loginGuest(username.trim());
+      saveSession(session);
+      navigate('/creator');
+    } catch (error) {
+      alert(error?.message || '登录失败，请稍后重试。');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -50,9 +60,10 @@ export default function Login() {
           
           <button 
             type="submit"
+            disabled={isSubmitting}
             className="w-full bg-[#8b2b2b] text-[#f5eedc] font-bold py-3 text-lg rounded hover:bg-red-800 transition shadow-md border-2 border-[#f5eedc] mt-4"
           >
-            推门进入酒馆
+            {isSubmitting ? '正在开门...' : '推门进入酒馆'}
           </button>
         </form>
         
