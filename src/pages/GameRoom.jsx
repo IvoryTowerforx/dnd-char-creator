@@ -32,6 +32,13 @@ const STATE_LABELS = {
   ended: '已结束'
 };
 
+const SKILL_ID_TO_NAME = {
+  athletics: "运动", acrobatics: "体操", sleight_of_hand: "巧手", stealth: "隐匿",
+  arcana: "奥秘", history: "历史", investigation: "调查", nature: "自然", religion: "宗教",
+  animal_handling: "驯兽", insight: "洞悉", medicine: "医药", perception: "察觉", survival: "求生",
+  deception: "欺瞒", intimidation: "威吓", performance: "表演", persuasion: "游说"
+};
+
 function HpBar({ current, max }) {
   const pct = max > 0 ? Math.max(0, Math.min(1, current / max)) : 0;
   let color = 'bg-green-500';
@@ -1024,7 +1031,7 @@ export default function GameRoom() {
                <div className="text-sm border border-gray-400 p-2 bg-white flex flex-wrap gap-2">
                  {Object.entries(myChar.proficiencies?.skills || {})
                    .filter(([_, isProf]) => isProf)
-                   .map(([key]) => <span className="bg-gray-200 px-1 rounded border border-gray-300" key={key}>{key}</span>)
+                  .map(([key]) => <span className="bg-gray-200 px-1 rounded border border-gray-300" key={key}>{SKILL_ID_TO_NAME[key] || key}</span>)
                  }
                </div>
              </div>
