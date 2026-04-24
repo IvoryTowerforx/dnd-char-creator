@@ -73,6 +73,39 @@ const PORTRAITS = {
 
 const BACKGROUNDS = ["平民", "贵族", "学者", "士兵", "罪犯", "骗子", "侍僧", "化外之民"];
 
+const RACE_ID_MAP = {
+  human: "人类", elf: "精灵", dwarf: "矮人", halfling: "半身人", tiefling: "提夫林",
+  dragonborn: "提夫林", gnome: "半身人", half_elf: "精灵", half_orc: "矮人"
+};
+
+const CLASS_ID_MAP = {
+  barbarian: "战士", bard: "法师", cleric: "牧师", druid: "牧师",
+  fighter: "战士", monk: "游荡者", paladin: "圣武士", ranger: "游荡者",
+  rogue: "游荡者", sorcerer: "法师", warlock: "法师", wizard: "法师"
+};
+
+const BACKGROUND_ID_MAP = {
+  acolyte: "侍僧", charlatan: "骗子", criminal: "罪犯", entertainer: "平民",
+  folk_hero: "平民", guild_artisan: "平民", hermit: "化外之民", noble: "贵族",
+  outlander: "化外之民", sage: "学者", sailor: "士兵", soldier: "士兵", urchin: "罪犯"
+};
+
+const ARMOR_ID_MAP = {
+  none: "none", leather: "leather", studded_leather: "studded",
+  chain_shirt: "chain_shirt", scale_mail: "scale",
+  chain_mail: "chain_mail", plate: "plate",
+  padded: "leather", hide: "chain_shirt",
+  breastplate: "scale", half_plate: "scale",
+  ring_mail: "chain_mail", splint: "chain_mail", shield: "none"
+};
+
+const SKILL_ID_TO_NAME = {
+  athletics: "运动", acrobatics: "体操", sleight_of_hand: "巧手", stealth: "隐匿",
+  arcana: "奥秘", history: "历史", investigation: "调查", nature: "自然", religion: "宗教",
+  animal_handling: "驯兽", insight: "洞悉", medicine: "医药", perception: "察觉", survival: "求生",
+  deception: "欺瞒", intimidation: "威吓", performance: "表演", persuasion: "游说"
+};
+
 export default function CharacterCreator() {
   const [basic, setBasic] = useState({ name: '', race: '人类', charClass: '战士', background: '平民', level: 1, customPortrait: '' });
   const [statMethod, setStatMethod] = useState('pointBuy');
@@ -215,12 +248,41 @@ export default function CharacterCreator() {
   const applyDraft = () => {
     if (!aiDraftResult?.draft) return;
     const d = aiDraftResult.draft;
-    if (d.basic) setBasic(prev => ({ ...prev, ...d.basic }));
-    if (d.baseStats) setBaseStats(d.baseStats);
+
+    if (d.basic) {
+      const level = (Number.isInteger(d.basic.level) && d.basic.level >= 1 && d.basic.level <= 20)
+                    ? d.basic.level : basic.level;
+      setBasic(prev => ({
+        ...prev,
+        name: d.basic.name || prev.name,
+        race: safeRace(d.basic.race || ''),
+        charClass: safeClass(d.basic.charClass || ''),
+        background: safeBackground(d.basic.background || ''),
+        level
+      }));
+    }
+
+    if (d.baseStats) {
+      const validStats = {};
+      STATS.forEach(s => {
+        const val = d.baseStats[s.id];
+        validStats[s.id] = (typeof val === 'number' && val >= 3 && val <= 20) ? val : 8;
+      });
+      setBaseStats(validStats);
+      setStatMethod('roll');
+    }
+
     if (d.proficiencies) setProficiencies(d.proficiencies);
-    if (d.equipment) setEquipment(d.equipment);
-    if (d.spells !== undefined) setSpells(d.spells);
-    if (d.specialAttrs !== undefined) setSpecialAttrs(d.specialAttrs);
+    if (d.equipment) {
+      setEquipment({
+        armor: safeArmor(d.equipment.armor || 'none'),
+        shield: typeof d.equipment.shield === 'boolean' ? d.equipment.shield : false,
+        weapons: typeof d.equipment.weapons === 'string' ? d.equipment.weapons : ''
+      });
+    }
+    if (d.spells !== undefined) setSpells(typeof d.spells === 'string' ? d.spells : '');
+    if (d.specialAttrs !== undefined) setSpecialAttrs(typeof d.specialAttrs === 'string' ? d.specialAttrs : '');
+
     setAiDraftResult(null);
     setShowAiPanel(false);
     setAiPrompt('');
@@ -267,15 +329,32 @@ export default function CharacterCreator() {
     }
   };
 
+  const safeRace = (val) => RACES[RACE_ID_MAP[val]] ? RACE_ID_MAP[val] : RACES[val] ? val : '人类';
+  const safeClass = (val) => CLASSES[CLASS_ID_MAP[val]] ? CLASS_ID_MAP[val] : CLASSES[val] ? val : '战士';
+  const safeBackground = (val) => BACKGROUND_ID_MAP[val] ? BACKGROUND_ID_MAP[val] : BACKGROUNDS.includes(val) ? val : '平民';
+  const safeArmor = (val) => ARMORS[ARMOR_ID_MAP[val]] ? ARMOR_ID_MAP[val] : ARMORS[val] ? val : 'none';
+
   const loadCharacter = (card) => {
-    setBasic(card.basic);
+    const b = card.basic || {};
+    setBasic({
+      name: b.name || '',
+      race: safeRace(b.race),
+      charClass: safeClass(b.charClass),
+      background: safeBackground(b.background),
+      level: (Number.isInteger(b.level) && b.level >= 1 && b.level <= 20) ? b.level : 1,
+      customPortrait: b.customPortrait || ''
+    });
     setStatMethod(card.statMethod || 'pointBuy');
-    setBaseStats(card.baseStats || { str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8 });
+    const stats = card.baseStats || { str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8 };
+    const safeStats = {};
+    STATS.forEach(s => { safeStats[s.id] = (typeof stats[s.id] === 'number') ? stats[s.id] : 8; });
+    setBaseStats(safeStats);
     setProficiencies(card.proficiencies || { skills: {} });
-    setEquipment(card.equipment || { armor: 'none', shield: false, weapons: '' });
+    const eq = card.equipment || {};
+    setEquipment({ armor: safeArmor(eq.armor), shield: typeof eq.shield === 'boolean' ? eq.shield : false, weapons: eq.weapons || '' });
     setSpells(card.spells || '');
     setSpecialAttrs(card.specialAttrs || '');
-    window.scrollTo({ top: 0, behavior: 'smooth' }); // 滚动到顶部以便查看
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDelete = async (id) => {
@@ -333,10 +412,10 @@ export default function CharacterCreator() {
                 <h3 className="font-bold font-cinzel text-dnd-gold">草案预览</h3>
                 <div className="text-sm space-y-1">
                   {aiDraftResult.draft.basic?.name && <p><span className="font-bold">名称：</span>{aiDraftResult.draft.basic.name}</p>}
-                  {aiDraftResult.draft.basic?.race && <p><span className="font-bold">种族：</span>{aiDraftResult.draft.basic.race}</p>}
-                  {aiDraftResult.draft.basic?.charClass && <p><span className="font-bold">职业：</span>{aiDraftResult.draft.basic.charClass}</p>}
+                  <p><span className="font-bold">种族：</span>{RACE_ID_MAP[aiDraftResult.draft.basic?.race] || aiDraftResult.draft.basic?.race || '-'}</p>
+                  <p><span className="font-bold">职业：</span>{CLASS_ID_MAP[aiDraftResult.draft.basic?.charClass] || aiDraftResult.draft.basic?.charClass || '-'}</p>
                   {aiDraftResult.draft.basic?.level && <p><span className="font-bold">等级：</span>{aiDraftResult.draft.basic.level}</p>}
-                  {aiDraftResult.draft.basic?.background && <p><span className="font-bold">背景：</span>{aiDraftResult.draft.basic.background}</p>}
+                  <p><span className="font-bold">背景：</span>{BACKGROUND_ID_MAP[aiDraftResult.draft.basic?.background] || aiDraftResult.draft.basic?.background || '-'}</p>
                   {aiDraftResult.draft.baseStats && (
                     <p><span className="font-bold">属性：</span>
                       {STATS.map(s => `${s.name}${aiDraftResult.draft.baseStats[s.id] ?? '-'}`).join(' / ')}
