@@ -1,4 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import {
+  aiDraftCharacter,
+  createCharacter,
+  deleteCharacter,
+  getAccessToken,
+  listCharacters
+} from '../lib/api';
 
 // === D&D 5E 基础规则数据 ===
 const RACES = {
@@ -75,10 +82,36 @@ export default function CharacterCreator() {
   const [spells, setSpells] = useState('');
   const [specialAttrs, setSpecialAttrs] = useState('');
   const [savedCards, setSavedCards] = useState([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isAiDrafting, setIsAiDrafting] = useState(false);
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  const [aiDraftResult, setAiDraftResult] = useState(null);
+
+  const inServerMode = Boolean(getAccessToken());
+
+  const getCardAc = (card) => card?.derived?.ac ?? card?.ac ?? '-';
+  const getCardHp = (card) => card?.derived?.hp ?? card?.hp ?? '-';
+  const getCardProfBonus = (card) => card?.derived?.profBonus ?? card?.profBonus ?? '-';
 
   useEffect(() => {
-    const saved = JSON.parse(localStorage.getItem('trpg_characters') || '[]');
-    setSavedCards(saved);
+    const loadSavedCards = async () => {
+      if (inServerMode) {
+        try {
+          const response = await listCharacters();
+          setSavedCards(response.items || []);
+          return;
+        } catch (error) {
+          console.error(error);
+          alert('后端角色库读取失败，已回退到本地缓存。');
+        }
+      }
+
+      const saved = JSON.parse(localStorage.getItem('trpg_characters') || '[]');
+      setSavedCards(saved);
+    };
+
+    loadSavedCards();
   }, []);
 
   const getModifier = (score) => Math.floor((score - 10) / 2);
@@ -161,26 +194,77 @@ export default function CharacterCreator() {
     return abilities.length > 0 ? abilities : ["该等级未解锁新能力。"];
   };
 
-  const handleSave = () => {
+  const handleAiDraft = async () => {
+    if (!aiPrompt.trim()) return;
+    setIsAiDrafting(true);
+    setAiDraftResult(null);
+    try {
+      const result = await aiDraftCharacter(aiPrompt);
+      setAiDraftResult(result);
+    } catch (error) {
+      if (error.status === 501) {
+        setAiDraftResult({ error: 'AI 服务未配置，请联系管理员启用 LLM 功能。' });
+      } else {
+        setAiDraftResult({ error: error?.message || 'AI 建卡失败，请稍后重试。' });
+      }
+    } finally {
+      setIsAiDrafting(false);
+    }
+  };
+
+  const applyDraft = () => {
+    if (!aiDraftResult?.draft) return;
+    const d = aiDraftResult.draft;
+    if (d.basic) setBasic(prev => ({ ...prev, ...d.basic }));
+    if (d.baseStats) setBaseStats(d.baseStats);
+    if (d.proficiencies) setProficiencies(d.proficiencies);
+    if (d.equipment) setEquipment(d.equipment);
+    if (d.spells !== undefined) setSpells(d.spells);
+    if (d.specialAttrs !== undefined) setSpecialAttrs(d.specialAttrs);
+    setAiDraftResult(null);
+    setShowAiPanel(false);
+    setAiPrompt('');
+  };
+
+  const handleSave = async () => {
     if (!basic.name.trim()) return alert("请输入角色名！");
-    // Ensure all elements exist and are saved properly into the card
-    const newCard = {
-      id: Date.now(), 
-      basic, 
+
+    if (isSaving) return;
+    setIsSaving(true);
+
+    const payload = {
+      basic,
       statMethod,
       baseStats,
       proficiencies,
-      ac: calculateAC(), 
-      hp: Math.floor(hp), 
-      profBonus, 
-      spells, 
-      equipment, 
+      spells,
+      equipment,
       specialAttrs
     };
-    const newCards = [...savedCards, newCard];
-    setSavedCards(newCards);
-    localStorage.setItem('trpg_characters', JSON.stringify(newCards));
-    alert("角色卡已保存！");
+
+    try {
+      if (inServerMode) {
+        await createCharacter(payload);
+        const response = await listCharacters();
+        setSavedCards(response.items || []);
+      } else {
+        const newCard = {
+          id: Date.now(),
+          ...payload,
+          ac: calculateAC(),
+          hp: Math.floor(hp),
+          profBonus
+        };
+        const newCards = [...savedCards, newCard];
+        setSavedCards(newCards);
+        localStorage.setItem('trpg_characters', JSON.stringify(newCards));
+      }
+      alert("角色卡已保存！");
+    } catch (error) {
+      alert(error?.message || '保存失败，请稍后重试。');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const loadCharacter = (card) => {
@@ -194,14 +278,98 @@ export default function CharacterCreator() {
     window.scrollTo({ top: 0, behavior: 'smooth' }); // 滚动到顶部以便查看
   };
 
-  const handleDelete = (id) => {
-    const filtered = savedCards.filter(c => c.id !== id);
-    setSavedCards(filtered);
-    localStorage.setItem('trpg_characters', JSON.stringify(filtered));
+  const handleDelete = async (id) => {
+    try {
+      if (inServerMode) {
+        await deleteCharacter(id);
+        const response = await listCharacters();
+        setSavedCards(response.items || []);
+      } else {
+        const filtered = savedCards.filter(c => c.id !== id);
+        setSavedCards(filtered);
+        localStorage.setItem('trpg_characters', JSON.stringify(filtered));
+      }
+    } catch (error) {
+      alert(error?.message || '删除失败，请稍后重试。');
+    }
   };
 
   return (
     <div className="space-y-8 text-dnd-dark max-w-7xl mx-auto font-serif">
+      <div className="panel-dnd p-6 md:p-8">
+        <div
+          className="flex items-center justify-between cursor-pointer"
+          onClick={() => setShowAiPanel(!showAiPanel)}
+        >
+          <h2 className="text-xl font-bold font-cinzel text-dnd-gold">AI 灵感建卡</h2>
+          <span className="text-dnd-gold text-lg">{showAiPanel ? '▲' : '▼'}</span>
+        </div>
+
+        {showAiPanel && (
+          <div className="mt-4 space-y-4">
+            <textarea
+              className="input-dnd p-3 w-full min-h-[80px] resize-y"
+              placeholder="描述你想要的角色，如：一个矮人战士，曾在地下城当过守卫，擅长使用战锤..."
+              value={aiPrompt}
+              onChange={e => setAiPrompt(e.target.value)}
+              disabled={isAiDrafting}
+            />
+            <button
+              onClick={handleAiDraft}
+              disabled={isAiDrafting || !aiPrompt.trim()}
+              className="btn-dnd px-6 py-2"
+            >
+              {isAiDrafting ? '生成中...' : '生成草案'}
+            </button>
+
+            {aiDraftResult?.error && (
+              <div className="bg-red-50 border border-red-300 text-red-600 p-3 rounded">
+                {aiDraftResult.error}
+              </div>
+            )}
+
+            {aiDraftResult?.draft && (
+              <div className="bg-[#e8deb8] border border-gray-300 p-4 rounded space-y-3">
+                <h3 className="font-bold font-cinzel text-dnd-gold">草案预览</h3>
+                <div className="text-sm space-y-1">
+                  {aiDraftResult.draft.basic?.name && <p><span className="font-bold">名称：</span>{aiDraftResult.draft.basic.name}</p>}
+                  {aiDraftResult.draft.basic?.race && <p><span className="font-bold">种族：</span>{aiDraftResult.draft.basic.race}</p>}
+                  {aiDraftResult.draft.basic?.charClass && <p><span className="font-bold">职业：</span>{aiDraftResult.draft.basic.charClass}</p>}
+                  {aiDraftResult.draft.basic?.level && <p><span className="font-bold">等级：</span>{aiDraftResult.draft.basic.level}</p>}
+                  {aiDraftResult.draft.basic?.background && <p><span className="font-bold">背景：</span>{aiDraftResult.draft.basic.background}</p>}
+                  {aiDraftResult.draft.baseStats && (
+                    <p><span className="font-bold">属性：</span>
+                      {STATS.map(s => `${s.name}${aiDraftResult.draft.baseStats[s.id] ?? '-'}`).join(' / ')}
+                    </p>
+                  )}
+                </div>
+
+                {aiDraftResult.validation && !aiDraftResult.validation.valid && (
+                  <div className="text-red-600 text-sm">
+                    <p className="font-bold">校验警告：</p>
+                    <ul className="list-disc list-inside">
+                      {aiDraftResult.validation.issues?.map((issue, i) => (
+                        <li key={i}>{issue}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="flex gap-3">
+                  <button onClick={applyDraft} className="btn-dnd px-6 py-2">采用此草案</button>
+                  <button
+                    onClick={() => { setAiDraftResult(null); setShowAiPanel(false); setAiPrompt(''); }}
+                    className="bg-gray-400 text-white px-6 py-2 rounded hover:bg-gray-500 transition"
+                  >
+                    放弃
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="panel-dnd p-6 md:p-8 relative grid grid-cols-1 lg:grid-cols-3 gap-8">
         
         {/* 左侧：基本信息与属性 */}
@@ -614,8 +782,8 @@ export default function CharacterCreator() {
       </div>
 
       <div className="flex justify-center mt-6">
-         <button onClick={handleSave} className="btn-dnd px-8 py-3 text-xl block shadow-md">
-          保存角色卡
+        <button onClick={handleSave} disabled={isSaving} className="btn-dnd px-8 py-3 text-xl block shadow-md">
+         {isSaving ? '保存中...' : '保存角色卡'}
          </button>
       </div>
 
@@ -636,9 +804,9 @@ export default function CharacterCreator() {
                   <h3 className="font-bold text-xl mb-1 text-dnd-red-dark">{c.basic?.name || "未知"}</h3>
                   <p className="text-sm font-bold text-gray-600 mb-3">{c.basic?.race} / {c.basic?.charClass} / 等级 {c.basic?.level}</p>
                   <div className="flex gap-2 text-xs font-bold text-gray-700">
-                    <span className="bg-blue-100 border border-blue-200 px-2 py-1 rounded">AC {c.ac}</span>
-                    <span className="bg-red-100 border border-red-200 px-2 py-1 rounded">HP {c.hp}</span>
-                    <span className="bg-gray-100 border border-gray-200 px-2 py-1 rounded">PB +{c.profBonus}</span>
+                    <span className="bg-blue-100 border border-blue-200 px-2 py-1 rounded">AC {getCardAc(c)}</span>
+                    <span className="bg-red-100 border border-red-200 px-2 py-1 rounded">HP {getCardHp(c)}</span>
+                    <span className="bg-gray-100 border border-gray-200 px-2 py-1 rounded">PB +{getCardProfBonus(c)}</span>
                   </div>
                 </div>
                 <button 

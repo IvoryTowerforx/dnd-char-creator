@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { createRoom, joinRoom } from '../lib/api';
 
 export default function RoomLobby() {
   const navigate = useNavigate();
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [roomConfig, setRoomConfig] = useState({
     maxPlayers: 4,
     isPrivate: false,
@@ -14,17 +16,52 @@ export default function RoomLobby() {
   const [joinId, setJoinId] = useState('');
   const [joinWord, setJoinWord] = useState('');
 
-  const handleCreateRoom = () => {
-    const roomId = Math.random().toString(36).substr(2, 6).toUpperCase();
-    navigate(`/room/${roomId}`);
+  const handleCreateRoom = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const room = await createRoom({
+        maxPlayers: Number(roomConfig.maxPlayers) || 4,
+        isPrivate: roomConfig.isPrivate,
+        password: roomConfig.password || '',
+        expansion: roomConfig.expansion,
+        campaign: roomConfig.campaign
+      });
+      navigate(`/room/${room.id}`, {
+        state: {
+          joinedByCreate: true,
+          joinWord: roomConfig.password || ''
+        }
+      });
+    } catch (error) {
+      alert(error?.message || '创建房间失败，请稍后重试。');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleJoinRoom = () => {
+  const handleJoinRoom = async () => {
     if(!joinId.trim()) {
       alert("必须出示战役信标（房间ID）！");
       return;
     }
-    navigate(`/room/${joinId.trim().toUpperCase()}`);
+
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const roomId = joinId.trim().toUpperCase();
+      await joinRoom(roomId, joinWord);
+      navigate(`/room/${roomId}`, {
+        state: {
+          joinedByCreate: false,
+          joinWord
+        }
+      });
+    } catch (error) {
+      alert(error?.message || '加入房间失败，请检查房间号和口令。');
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -91,9 +128,10 @@ export default function RoomLobby() {
           
           <button 
             onClick={handleCreateRoom} 
+            disabled={isSubmitting}
             className="btn-dnd w-full py-4 text-xl tracking-widest mt-4"
           >
-            宣告降生
+            {isSubmitting ? '咒文构筑中...' : '宣告降生'}
           </button>
         </div>
       </div>
@@ -118,9 +156,10 @@ export default function RoomLobby() {
           />
           <button 
             onClick={handleJoinRoom}
+            disabled={isSubmitting}
             className="btn-dnd py-4 text-xl tracking-widest"
           >
-            踏入传送门
+            {isSubmitting ? '正在穿越位面...' : '踏入传送门'}
           </button>
         </div>
       </div>
